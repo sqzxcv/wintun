@@ -112,12 +112,12 @@ impl Adapter {
         wintun: &Arc<wintun_raw::wintun>,
         pool: &str,
         name: &str,
-        guid: Option<u128>,
+        guid_param: Option<u128>,
     ) -> Result<CreateData, error::WintunError> {
         let pool_utf16 = encode_pool_name(pool)?;
         let name_utf16 = encode_adapter_name(name)?;
 
-        let guid = match guid {
+        let guid = match guid_param {
             Some(guid) => guid,
             None => {
                 // Use random bytes so that we can identify this adapter in get_adapter_index
