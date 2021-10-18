@@ -6,6 +6,8 @@ typedef unsigned char BYTE;
 typedef void* LPARAM;
 typedef void* HANDLE;
 typedef unsigned short WCHAR;
+typedef const WCHAR *LPCWSTR, *PCWSTR;
+typedef unsigned __int64 DWORD64, *PDWORD64;
 typedef unsigned int DWORD;
 
 typedef struct _GUID {
@@ -43,10 +45,11 @@ typedef ULONG64 NET_LUID;
 #define WINTUN_MAX_IP_PACKET_SIZE 0xFFFF
 
 //A handle representing Wintun adapter
-typedef void* WINTUN_ADAPTER_HANDLE;
-
-//A handle representing Wintun session
-typedef void* WINTUN_SESSION_HANDLE;
+typedef struct _WINTUN_ADAPTER *WINTUN_ADAPTER_HANDLE;
+/**
+ * A handle representing Wintun session
+ */
+typedef struct _TUN_SESSION *WINTUN_SESSION_HANDLE;
 
 
 /*
@@ -76,24 +79,27 @@ Parameters
 
 Level : Message level.
 Message : Message text.*/
-typedef void(WINTUN_API *WINTUN_LOGGER_CALLBACK) (enum WINTUN_LOGGER_LEVEL Level, const WCHAR* Message);
+typedef void(WINTUN_API *WINTUN_LOGGER_CALLBACK) (enum WINTUN_LOGGER_LEVEL Level, DWORD64 Timestamp, const WCHAR* Message);
 
-/*
-    Creates a new Wintun adapter.
-
-    Parameters
-
-    Pool : Name of the adapter pool.Zero - terminated string of up to WINTUN_MAX_POOL - 1 characters.
-    Name : The requested name of the adapter.Zero - terminated string of up to MAX_ADAPTER_NAME - 1 characters.
-    RequestedGUID : The GUID of the created network adapter, which then influences NLA generation deterministically.If it is set to NULL, the GUID is chosen by the system at random, and hence a new NLA entry is created for each new adapter.It is called "requested" GUID because the API it uses is completely undocumented, and so there could be minor interesting complications with its usage.
-    RebootRequired : Optional pointer to a boolean flag to be set to TRUE in case SetupAPI suggests a reboot.
-
-    Returns
-
-    If the function succeeds, the return value is the adapter handle.Must be released with WintunFreeAdapter.If the function fails, the return value is NULL.To get extended error information, call GetLastError.
-*/
-WINTUN_ADAPTER_HANDLE WINTUN_API WintunCreateAdapter(const WCHAR* Pool, const WCHAR* Name, const GUID* RequestedGUID, BOOL* RebootRequired);
-
+/**
+ * Creates a new Wintun adapter.
+ *
+ * @param Name          The requested name of the adapter. Zero-terminated string of up to MAX_ADAPTER_NAME-1
+ *                      characters.
+ *
+ * @param TunnelType    Name of the adapter tunnel type. Zero-terminated string of up to MAX_ADAPTER_NAME-1
+ *                      characters.
+ *
+ * @param RequestedGUID The GUID of the created network adapter, which then influences NLA generation deterministically.
+ *                      If it is set to NULL, the GUID is chosen by the system at random, and hence a new NLA entry is
+ *                      created for each new adapter. It is called "requested" GUID because the API it uses is
+ *                      completely undocumented, and so there could be minor interesting complications with its usage.
+ *
+ * @return If the function succeeds, the return value is the adapter handle. Must be released with
+ * WintunCloseAdapter. If the function fails, the return value is NULL. To get extended error information, call
+ * GetLastError.
+ */
+WINTUN_ADAPTER_HANDLE WINTUN_API WintunCreateAdapter(LPCWSTR Name, LPCWSTR TunnelType, const GUID *RequestedGUID);
 
 
 /*
@@ -110,116 +116,16 @@ WINTUN_ADAPTER_HANDLE WINTUN_API WintunCreateAdapter(const WCHAR* Pool, const WC
 ERROR_ALREADY_EXISTS if adapter is found but not a Wintun - class or
     not a member of the pool WintunDeleteAdapter()
 */
-WINTUN_ADAPTER_HANDLE WINTUN_API WintunOpenAdapter(const WCHAR * Pool, const WCHAR * Name);
-
-/*
-Deletes a Wintun adapter.
-
-Parameters
-
-        Adapter : Adapter handle obtained with WintunOpenAdapter or
-WintunCreateAdapter
-    .ForceCloseSessions
-: Force close adapter handles that may be in use by other processes.Only
-      set this to TRUE with extreme care,
-as this is resource intensiveand may put processes into an undefined or
-    unpredictable state.Most users should set this to FALSE
-        .RebootRequired
-: Optional pointer to a boolean flag to be set to TRUE in case SetupAPI
-      suggests a reboot.
-
-  Returns
-
-      If the function succeeds,
-the return value is nonzero.If the function fails,
-the return value is zero.To get extended error information,
-call GetLastError .WintunEnumAdapters()
-*/
-BOOL WINTUN_API WintunDeleteAdapter(WINTUN_ADAPTER_HANDLE Adapter, BOOL ForceCloseSessions, BOOL *RebootRequired);
+WINTUN_ADAPTER_HANDLE WINTUN_API WintunOpenAdapter(LPCWSTR Name);
 
 
+BOOL WINTUN_API WintunDeleteDriver();
 
-/*
-            Enumerates all Wintun adapters
-            .
+void WINTUN_API WintunCloseAdapter(WINTUN_ADAPTER_HANDLE Adapter);
 
-        Parameters
-
-        Pool : Name of the adapter pool.Zero
-        - terminated string of up to WINTUN_MAX_POOL -
-        1 characters.Callback : Callback function.To continue enumeration,
-    the callback function must return TRUE; to stop enumeration, it must return FALSE.
-    Param: An application - defined value to be passed to the callback function.
-
-    Returns
-
-    If the function succeeds, the return value is nonzero.If the function fails, the return value is zero.To get extended error information, call GetLastError.
-*/
-BOOL WINTUN_API WintunEnumAdapters(const WCHAR *Pool, WINTUN_ENUM_CALLBACK Callback, LPARAM Param);
-
-
-/*
-    Releases Wintun adapter resources.
-
-    Parameters
-
-    Adapter : Adapter handle obtained with WintunOpenAdapter or WintunCreateAdapter.
-
-
-    BOOL WintunDeletePoolDriver(const WCHAR * Pool, BOOL * RebootRequired)
-
-    Deletes all Wintun adapters in a pool and if there are no more adapters in any other pools, also removes Wintun from the driver store, usually called by uninstallers.
-
-    Parameters
-
-    Pool : Name of the adapter pool.Zero - terminated string of up to WINTUN_MAX_POOL - 1 characters.
-    RebootRequired : Optional pointer to a boolean flag to be set to TRUE in case SetupAPI suggests a reboot.
-
-    Returns
-
-    If the function succeeds, the return value is nonzero.If the function fails, the return value is zero.To get extended error information, call GetLastError.
-*/
-void WINTUN_API WintunFreeAdapter(WINTUN_ADAPTER_HANDLE Adapter);
-
-
-/*
-    Returns the LUID of the adapter.
-
-    Parameters
-
-    Adapter : Adapter handle obtained with WintunOpenAdapter or WintunCreateAdapter
-    Luid : Pointer to LUID to receive adapter LUID.
-*/
 void WINTUN_API WintunGetAdapterLUID(WINTUN_ADAPTER_HANDLE Adapter, NET_LUID * Luid);
 
-/*
-    Returns the name of the Wintun adapter.
-
-    Parameters
-
-    Adapter : Adapter handle obtained with WintunOpenAdapter or WintunCreateAdapter
-    Name : Pointer to a string to receive adapter name
-
-    Returns
-
-    If the function succeeds, the return value is nonzero.If the function fails, the return value is zero.To get extended error information, call GetLastError.
-*/
-BOOL WINTUN_API WintunGetAdapterName(WINTUN_ADAPTER_HANDLE Adapter, WCHAR * Name);
-
-/*
-    Sets name of the Wintun adapter.
-
-    Parameters
-
-    Adapter : Adapter handle obtained with WintunOpenAdapter or WintunCreateAdapter
-    Name : Adapter name.Zero - terminated string of up to MAX_ADAPTER_NAME - 1 characters.
-
-    Returns
-
-    If the function succeeds, the return value is nonzero.If the function fails, the return value is zero.To get extended error information, call GetLastError.
-*/
-BOOL WINTUN_API WintunSetAdapterName(WINTUN_ADAPTER_HANDLE Adapter, const WCHAR* Name);
-
+void WINTUN_API WintunSetLogger(WINTUN_LOGGER_CALLBACK NewLogger);
 
 /*
     Determines the version of the Wintun driver currently loaded.
@@ -229,16 +135,6 @@ BOOL WINTUN_API WintunSetAdapterName(WINTUN_ADAPTER_HANDLE Adapter, const WCHAR*
     If the function succeeds, the return value is the version number.If the function fails, the return value is zero.To get extended error information, call GetLastError.Possible errors include the following : ERROR_FILE_NOT_FOUND Wintun not loaded
 */
 DWORD WINTUN_API WintunGetRunningDriverVersion(void);
-
-
-/*
-    Sets logger callback function.
-
-    Parameters
-
-    NewLogger : Pointer to callback function to use as a new global logger.NewLogger may be called from various threads concurrently.Should the logging require serialization, you must handle serialization in NewLogger.Set to NULL to disable.
-*/
-void WINTUN_API WintunSetLogger(WINTUN_LOGGER_CALLBACK NewLogger);
 
 /*
     Starts Wintun session.
@@ -277,7 +173,6 @@ void WINTUN_API WintunEndSession(WINTUN_SESSION_HANDLE Session);
     Pointer to receive event handle to wait for available data when reading.Should WintunReceivePackets return ERROR_NO_MORE_ITEMS(after spinning on it for a while under heavy load), wait for this event to become signaled before retrying WintunReceivePackets.Do not call CloseHandle on this event - it is managed by the session.
 */
 HANDLE WINTUN_API WintunGetReadWaitEvent(WINTUN_SESSION_HANDLE Session);
-
 
 /*
     Retrieves one or packet.After the packet content is consumed, call WintunReleaseReceivePacket with Packet returned from this function to release internal buffer.This function is thread - safe.
