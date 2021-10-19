@@ -15,6 +15,7 @@ static SET_LOGGER: AtomicBool = AtomicBool::new(false);
 /// The logger that is active by default. Logs messages to the log crate
 pub extern "C" fn default_logger(
     level: wintun_raw::WINTUN_LOGGER_LEVEL,
+    timestamp: wintun_raw::DWORD64,
     message: *const wintun_raw::WCHAR,
 ) {
     //Winton will always give us a valid UTF16 null termineted string

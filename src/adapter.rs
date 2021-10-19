@@ -25,6 +25,7 @@ use winapi::{
     shared::winerror,
     um::{ipexport, iphlpapi, synchapi},
 };
+use crate::wintun_raw::BOOL;
 
 /// Wrapper around a <https://git.zx2c4.com/wintun/about/#wintun_adapter_handle>
 pub struct Adapter {
@@ -68,23 +69,6 @@ fn encode_adapter_name(name: &str) -> Result<U16CString, error::WintunError> {
     encode_utf16(name, wintun_raw::MAX_ADAPTER_NAME)
 }
 
-fn get_adapter_name(
-    wintun: &Arc<wintun_raw::wintun>,
-    adapter: wintun_raw::WINTUN_ADAPTER_HANDLE,
-) -> String {
-    let mut name = MaybeUninit::<[u16; wintun_raw::MAX_ADAPTER_NAME as usize]>::uninit();
-
-    //SAFETY: name is a allocated on the stack above therefore it must be valid, non-null and
-    //aligned for u16
-    let first = unsafe { *name.as_mut_ptr() }.as_mut_ptr();
-    //Write default null terminator in case WintunGetAdapterName leaves name unchanged
-    unsafe { first.write(0u16) };
-    unsafe { wintun.WintunGetAdapterName(adapter, first) };
-
-    //SAFETY: first is a valid, non-null, aligned, null terminated pointer
-    unsafe { U16CStr::from_ptr_str(first) }.to_string_lossy()
-}
-
 fn get_adapter_luid(
     wintun: &Arc<wintun_raw::wintun>,
     adapter: wintun_raw::WINTUN_ADAPTER_HANDLE,
@@ -92,6 +76,12 @@ fn get_adapter_luid(
     let mut luid = 0u64;
     unsafe { wintun.WintunGetAdapterLUID(adapter, &mut luid as *mut u64) };
     luid
+}
+
+fn delete_driver(wintun: &Arc<wintun_raw::wintun>) -> BOOL {
+    unsafe {
+        wintun.WintunDeleteDriver()
+    }
 }
 
 /// Contains information about a single existing adapter
@@ -144,10 +134,9 @@ impl Adapter {
         //applies for all Wintun* functions below
         let result = unsafe {
             wintun.WintunCreateAdapter(
-                pool_utf16.as_ptr(),
                 name_utf16.as_ptr(),
+                pool_utf16.as_ptr(),
                 guid_ptr,
-                &mut reboot_required as *mut u8,
             )
         };
 
@@ -184,7 +173,7 @@ impl Adapter {
 
         crate::log::set_default_logger_if_unset(&wintun);
 
-        let result = unsafe { wintun.WintunOpenAdapter(pool_utf16.as_ptr(), name_utf16.as_ptr()) };
+        let result = unsafe { wintun.WintunOpenAdapter( name_utf16.as_ptr()) };
 
         if result == ptr::null_mut() {
             Err("WintunOpenAdapter failed".into())
@@ -198,66 +187,16 @@ impl Adapter {
         }
     }
 
-    /// Returns a vector of the wintun adapters that exist in a particular pool
-    pub fn list_all(
-        wintun: &Arc<wintun_raw::wintun>,
-        pool: &str,
-    ) -> Result<Vec<EnumeratedAdapter>, error::WintunError> {
-        let pool_utf16 = encode_pool_name(pool)?;
-        let mut result = Vec::new();
-
-        //Maybe oneday this will be part of the language, or a proc macro
-        struct CallbackData<'a> {
-            vec: &'a mut Vec<EnumeratedAdapter>,
-            wintun: &'a Arc<wintun_raw::wintun>,
-        }
-
-        extern "C" fn enumerate_one(
-            adapter: wintun_raw::WINTUN_ADAPTER_HANDLE,
-            param: wintun_raw::LPARAM,
-        ) -> u8 {
-            let data = unsafe { (param as *mut CallbackData).as_mut() }.unwrap();
-            //Push adapter information when the callback is called
-            data.vec.push(EnumeratedAdapter {
-                name: get_adapter_name(data.wintun, adapter),
-                luid: get_adapter_luid(data.wintun, adapter),
-            });
-            1
-        }
-        let mut data = CallbackData {
-            vec: &mut result,
-            wintun,
-        };
-
-        unsafe {
-            wintun.WintunEnumAdapters(
-                pool_utf16.as_ptr(),
-                Some(enumerate_one),
-                (&mut data as *mut CallbackData) as wintun_raw::LPARAM,
-            )
-        };
-
-        Ok(result)
-    }
-
     /// Delete an adapter, consuming it in the process
     /// Returns `Ok(reboot_suggested: bool)` on success
     pub fn delete(self, force_close_sessions: bool) -> Result<bool, ()> {
         let mut reboot_required = 0u8;
 
         let result = unsafe {
-            self.wintun.WintunDeleteAdapter(
-                self.adapter.0,
-                u8::from(force_close_sessions),
-                &mut reboot_required as *mut u8,
-            )
+            self.wintun.WintunCloseAdapter(self.adapter.0)
         };
 
-        if result != 0 {
-            Ok(reboot_required != 0)
-        } else {
-            Err(())
-        }
+        Ok(true)
     }
 
     /// Initiates a new wintun session on the given adapter.
@@ -304,12 +243,6 @@ impl Adapter {
     /// Returns the Win32 LUID for this adapter
     pub fn get_luid(&self) -> u64 {
         get_adapter_luid(&self.wintun, self.adapter.0)
-    }
-
-    /// Returns the name of this adapter. Set by calls to [`Adapter::create`]
-    pub fn get_adapter_name(&self) -> String {
-        // TODO: also expose WintunSetAdapterName
-        get_adapter_name(&self.wintun, self.adapter.0)
     }
 
     /// Returns the Win32 interface index of this adapter. Useful for specifying the interface
@@ -442,7 +375,7 @@ impl Drop for Adapter {
     fn drop(&mut self) {
         //Free adapter on drop
         //This is why we need an Arc of wintun
-        unsafe { self.wintun.WintunFreeAdapter(self.adapter.0) };
+        unsafe { self.wintun.WintunCloseAdapter(self.adapter.0) };
         self.adapter = UnsafeHandle(ptr::null_mut());
     }
 }
