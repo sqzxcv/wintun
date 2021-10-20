@@ -94,6 +94,9 @@ mod util;
 #[allow(non_snake_case, dead_code, unused_variables, non_camel_case_types, deref_nullptr)]
 mod wintun_raw;
 
+/// 支持wintun.dll 最小版本号
+pub const wintun_dll_min_version:&str = 0.14.1;
+
 pub use crate::adapter::*;
 pub use crate::error::*;
 pub use crate::log::*;
