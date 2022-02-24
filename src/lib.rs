@@ -75,6 +75,9 @@
 //! handle. Asyncify other slow operations via tokio::spawn_blocking. As always, PR's are welcome!
 //!
 
+/// 支持wintun.dll 最小版本号
+pub const wintun_dll_min_version:&str = "0.14.1";
+
 mod adapter;
 mod error;
 mod log;
